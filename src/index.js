@@ -4,9 +4,8 @@ import path from "path";
 import { getGmailClient, listUnread, getMeta, markRead } from "./gmail.js";
 import { sendTelegramMessage } from "./telegram.js";
 
-import { initCredentials } from "./bootstrap.js";
-
-initCredentials();
+import { bootstrapSecrets } from "./bootstrap.js";
+bootstrapSecrets();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
