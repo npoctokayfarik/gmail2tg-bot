@@ -1,6 +1,6 @@
-node_modules
 .env
+node_modules
 token.json
 credentials.json
-*.swp
-.DS_Store
+token.b64
+cred.b64
