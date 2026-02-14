@@ -1,85 +1,59 @@
 import express from "express";
-import fs from "fs";
-import path from "path";
+import { bootstrapSecrets } from "./bootstrap.js";
 import { getGmailClient, listUnread, getMeta, markRead } from "./gmail.js";
 import { sendTelegramMessage } from "./telegram.js";
 
-import { bootstrapSecrets } from "./bootstrap.js";
+// 1) Сначала создаём credentials.json/token.json из ENV (Render)
 bootstrapSecrets();
 
+// 2) HTTP сервер для Render + UptimeRobot
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ================== HEALTH CHECK ==================
-app.get("/", (req, res) => {
-  res.send("OK");
-});
+app.get("/", (req, res) => res.status(200).send("OK"));
+app.get("/health", (req, res) => res.status(200).json({ ok: true }));
 
-// ================== BASE64 -> FILE ==================
-function ensureFileFromEnv(envName, filePath) {
-  const value = process.env[envName];
+app.listen(PORT, () => console.log(`🌍 HTTP server on ${PORT}`));
 
-  if (!value) {
-    throw new Error(`Missing ${envName} in ENV`);
-  }
+// 3) Gmail polling
+const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 10000);
+const MAX_PER_TICK = Number(process.env.MAX_PER_TICK || 5);
 
-  if (!fs.existsSync(filePath)) {
-    const buffer = Buffer.from(value, "base64");
-    fs.writeFileSync(filePath, buffer);
-    console.log(`✅ ${filePath} created from ENV`);
-  }
+function buildText(meta) {
+  return (
+    `📩 Новое письмо\n\n` +
+    `👤 ${meta.from || "(no from)"}\n` +
+    `📝 ${meta.subject || "(no subject)"}\n` +
+    `📅 ${meta.date || ""}\n\n` +
+    `${meta.snippet || ""}`
+  );
 }
 
-// ================== MAIN LOOP ==================
 async function startBot() {
   try {
     console.log("🚀 Запуск Gmail клиента...");
-
-    // создаём файлы из ENV
-    ensureFileFromEnv("GOOGLE_CREDENTIALS_BASE64", "credentials.json");
-
-    if (process.env.GOOGLE_TOKEN_BASE64) {
-      ensureFileFromEnv("GOOGLE_TOKEN_BASE64", "token.json");
-    }
-
-    const gmail = await getGmailClient();
-
+    const gmail = getGmailClient();
     console.log("✅ Gmail подключен");
 
     setInterval(async () => {
       try {
-        const messages = await listUnread(gmail, 5);
+        const messages = await listUnread(gmail, MAX_PER_TICK);
 
         for (const msg of messages) {
           const meta = await getMeta(gmail, msg.id);
 
-          const text = `
-📩 Новое письмо
-
-👤 ${meta.from}
-📝 ${meta.subject}
-📅 ${meta.date}
-
-${meta.snippet}
-          `;
-
-          await sendTelegramMessage(text);
+          await sendTelegramMessage(buildText(meta));
           await markRead(gmail, msg.id);
 
-          console.log("📤 Отправлено в Telegram:", meta.subject);
+          console.log("📤 Отправлено в Telegram:", meta.subject || msg.id);
         }
       } catch (err) {
-        console.error("❌ Ошибка цикла:", err.message);
+        console.error("❌ Ошибка цикла:", err?.message || err);
       }
-    }, 10000); // каждые 10 сек
+    }, POLL_INTERVAL_MS);
   } catch (err) {
-    console.error("❌ Main error:", err.message);
+    console.error("❌ Main error:", err?.message || err);
   }
 }
-
-// ================== START ==================
-app.listen(PORT, () => {
-  console.log(`🌍 HTTP server on ${PORT}`);
-});
 
 startBot();
