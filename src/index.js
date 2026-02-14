@@ -1,56 +1,57 @@
-import "dotenv/config";
+import express from "express";
+import dotenv from "dotenv";
+dotenv.config();
+
 import { getGmailClient, listUnread, getMeta, markRead } from "./gmail.js";
 import { sendTelegramMessage } from "./telegram.js";
-import express from "express";
-import { bootstrapFiles } from "./bootstrap.js";
-bootstrapFiles();
-
-
-const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 60000);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-function escape(s = "") {
-  return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 15000); // 15 сек
+const MAX_PER_TICK = Number(process.env.MAX_PER_TICK || 5); // сколько писем за раз
+
+app.get("/", (req, res) => res.send("Bot is running 🚀"));
+app.get("/health", (req, res) => res.status(200).send("OK"));
+
+function formatMessage(m) {
+  const from = m.from || "(no from)";
+  const subject = m.subject || "(no subject)";
+  const date = m.date || "";
+  const snippet = m.snippet || "";
+
+  return `📩 *Новое письмо*\n` +
+    `👤 *From:* ${from}\n` +
+    `🧾 *Subject:* ${subject}\n` +
+    (date ? `🕒 *Date:* ${date}\n` : "") +
+    `\n${snippet}`;
 }
 
 async function tick(gmail) {
-  const msgs = await listUnread(gmail, 10);
-  if (!msgs.length) {
-    console.log("Новых писем нет");
-    return;
-  }
+  const messages = await listUnread(gmail, MAX_PER_TICK);
 
-  for (const m of msgs) {
-    const d = await getMeta(gmail, m.id);
+  if (!messages.length) return;
 
-    const text =
-      `📩 <b>${escape(d.subject || "(без темы)")}</b>\n` +
-      `👤 <b>From:</b> ${escape(d.from)}\n` +
-      `🕒 <b>Date:</b> ${escape(d.date)}\n\n` +
-      `${escape(d.snippet)}`;
+  for (const m of messages) {
+    const meta = await getMeta(gmail, m.id);
 
-    // В telegram.js сейчас без parse_mode — если хочешь HTML, скажи, добавлю обратно
-    await sendTelegramMessage(text.replaceAll(/<\/?b>/g, "")); // простой текст без HTML
-
+    await sendTelegramMessage(formatMessage(meta));
     await markRead(gmail, m.id);
-    console.log("Переслал и пометил прочитанным:", d.subject);
+
+    console.log("✅ Переслал и пометил прочитанным:", meta.subject);
   }
 }
-
-app.get("/health", (req, res) => res.status(200).send("ok"));
-app.listen(PORT, () => console.log("✅ Health server:", PORT));
 
 async function main() {
+  console.log("🚀 Запуск Gmail клиента...");
   const gmail = await getGmailClient();
-  console.log("✅ Gmail connected. Poll:", POLL_INTERVAL_MS, "ms");
+  console.log("✅ Gmail подключён. Стартуем polling:", POLL_INTERVAL_MS, "ms");
 
   await tick(gmail);
-  setInterval(() => tick(gmail).catch((e) => console.error("Tick error:", e.message)), POLL_INTERVAL_MS);
+  setInterval(() => {
+    tick(gmail).catch((e) => console.error("Tick error:", e.message));
+  }, POLL_INTERVAL_MS);
 }
 
-main().catch((e) => {
-  console.error("Fatal:", e.message);
-  process.exit(1);
-});
+app.listen(PORT, () => console.log("🌐 HTTP server on", PORT));
+main().catch((e) => console.error("Main error:", e.message));

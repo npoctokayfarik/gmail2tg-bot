@@ -15,14 +15,15 @@ export async function sendTelegramMessage(text) {
     const res = await axios.post(url, {
       chat_id: chatId,
       text: text ?? "",
+      parse_mode: "Markdown", // 👈 ВАЖНО
       disable_web_page_preview: true,
     });
+
     return res.data;
   } catch (err) {
     const status = err.response?.status;
     const data = err.response?.data;
 
-    // Самое важное: Telegram почти всегда пишет норм описание
     const desc = data?.description || err.message;
 
     throw new Error(
@@ -30,3 +31,4 @@ export async function sendTelegramMessage(text) {
     );
   }
 }
+
