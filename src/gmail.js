@@ -9,8 +9,8 @@ function readJson(path) {
 }
 
 export function getGmailClient() {
-  const credentials = readJson("credentials.json");
-  const token = readJson("token.json");
+  const CREDENTIALS_PATH = path.resolve("credentials.json");
+  const TOKEN_PATH = path.resolve("token.json");
 
   const info = credentials.installed || credentials.web;
   if (!info?.client_id || !info?.client_secret) {
